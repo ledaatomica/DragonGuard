@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <title>Resiliency Patterns — an open-source field guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    @keyframes blinkRed { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+    @keyframes riseIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    body { margin: 0; background: #FBF6EE; }
+    a { color: #C24E1F; text-decoration: none; }
+    a:hover { color: #8F3A16; text-decoration: underline; }
+    ::selection { background: #F6DDCB; }
+  </style>
+</helmet>
+
+<div style="font-family:'Space Grotesk',Helvetica,Arial,sans-serif; color:#221C15; background:#FBF6EE; min-height:100vh;">
+
+  <!-- Sticky nav -->
+  <div style="position:sticky; top:0; z-index:20; background:rgba(251,246,238,0.92); backdrop-filter:blur(6px); border-bottom:1px solid #E4DAC5;">
+    <div style="max-width:1080px; margin:0 auto; padding:14px 24px; display:flex; align-items:center; gap:18px; flex-wrap:wrap;">
+      <div style="font-weight:700; font-size:16px; letter-spacing:-0.01em; display:flex; align-items:center; gap:8px;">
+        <span style="width:10px; height:10px; border-radius:3px; background:{{ accentColor }}; display:inline-block;"></span>
+        Resiliency Patterns
+      </div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-left:auto;">
+        <a href="#circuit-breaker" style="font-size:13px; font-family:'IBM Plex Mono',monospace; color:#6B6156; padding:6px 10px; border-radius:999px; background:#F1EBDD;">Circuit Breaker</a>
+        <a href="#retry" style="font-size:13px; font-family:'IBM Plex Mono',monospace; color:#6B6156; padding:6px 10px; border-radius:999px; background:#F1EBDD;">Retry</a>
+        <a href="#timeout" style="font-size:13px; font-family:'IBM Plex Mono',monospace; color:#6B6156; padding:6px 10px; border-radius:999px; background:#F1EBDD;">Timeout</a>
+        <a href="#bulkhead" style="font-size:13px; font-family:'IBM Plex Mono',monospace; color:#6B6156; padding:6px 10px; border-radius:999px; background:#F1EBDD;">Bulkhead</a>
+        <a href="#rate-limit" style="font-size:13px; font-family:'IBM Plex Mono',monospace; color:#6B6156; padding:6px 10px; border-radius:999px; background:#F1EBDD;">Rate Limit</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hero -->
+  <div style="max-width:1080px; margin:0 auto; padding:64px 24px 40px;">
+    <div style="display:inline-flex; align-items:center; gap:8px; font-family:'IBM Plex Mono',monospace; font-size:12px; text-transform:uppercase; letter-spacing:0.08em; color:#8F3A16; background:#F6DDCB; padding:6px 12px; border-radius:999px; margin-bottom:20px;">
+      Open source · learn by breaking things
+    </div>
+    <h1 style="font-size:56px; line-height:1.05; margin:0 0 20px; font-weight:700; letter-spacing:-0.02em; max-width:760px;">
+      A field guide to systems that refuse to fall over.
+    </h1>
+    <p style="font-size:19px; line-height:1.6; color:#4A4237; max-width:640px; margin:0 0 28px;">
+      Five resiliency patterns, distilled from the engineering ideas hyperscale streaming platforms popularized for surviving failure at massive scale — reimagined here as an original, tinkerable, open-source teaching library. Poke each demo. Break it on purpose.
+    </p>
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      <a href="#circuit-breaker" style="display:inline-flex; align-items:center; gap:8px; background:{{ accentColor }}; color:#FFF7EF; font-weight:600; font-size:15px; padding:12px 20px; border-radius:10px;">Start exploring ↓</a>
+      <span style="display:inline-flex; align-items:center; gap:8px; font-family:'IBM Plex Mono',monospace; font-size:13px; color:#7A705F; padding:12px 4px;">MIT licensed · fork &amp; remix</span>
+    </div>
+  </div>
+
+  <div style="max-width:1080px; margin:0 auto; padding:0 24px 40px; display:flex; gap:10px; flex-wrap:wrap;">
+    <sc-for list="{{ statChips }}" as="chip" hint-placeholder-count="3">
+      <div style="background:#FFFFFF; border:1px solid #E4DAC5; border-radius:12px; padding:14px 18px; min-width:150px;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:22px; font-weight:600;">{{ chip.value }}</div>
+        <div style="font-size:12.5px; color:#7A705F; margin-top:2px;">{{ chip.label }}</div>
+      </div>
+    </sc-for>
+  </div>
+
+  <!-- ============ CIRCUIT BREAKER ============ -->
+  <div id="circuit-breaker" style="max-width:1080px; margin:0 auto; padding:56px 24px; border-top:1px solid #E4DAC5;">
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#7A705F; margin-bottom:8px;">01 / PROTECT THE CALLER</div>
+    <h2 style="font-size:34px; margin:0 0 14px; letter-spacing:-0.01em;">Circuit Breaker</h2>
+    <p style="font-size:16px; line-height:1.65; color:#4A4237; max-width:680px; margin:0 0 32px;">
+      When a downstream service starts failing, stop hammering it. A circuit breaker trips <b>open</b> after repeated failures, short-circuiting new calls immediately so the caller fails fast instead of piling up timeouts — then cautiously tests the water in a <b>half-open</b> state before fully closing again.
+    </p>
+
+    <div style="display:grid; grid-template-columns:1.1fr 0.9fr; gap:24px; align-items:start;">
+      <!-- Demo -->
+      <div style="background:#FFFFFF; border:1px solid #E4DAC5; border-radius:16px; padding:28px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:22px;">
+          <div style="display:flex; gap:10px;">
+            <div style="text-align:center;">
+              <div style="width:64px; height:64px; border-radius:14px; background:{{ cbClosedBg }}; display:flex; align-items:center; justify-content:center; font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; color:#FFF; text-transform:uppercase;">Closed</div>
+            </div>
+            <div style="align-self:center; font-size:18px; color:#C6BBA5;">→</div>
+            <div style="text-align:center;">
+              <div style="width:64px; height:64px; border-radius:14px; background:{{ cbHalfOpenBg }}; display:flex; align-items:center; justify-content:center; font-family:'IBM Plex Mono',monospace; font-size:10px; font-weight:600; color:#FFF; text-transform:uppercase; text-align:center; line-height:1.2;">Half<br/>Open</div>
+            </div>
+            <div style="align-self:center; font-size:18px; color:#C6BBA5;">→</div>
+            <div style="text-align:center;">
+              <div style="width:64px; height:64px; border-radius:14px; background:{{ cbOpenBg }}; display:flex; align-items:center; justify-content:center; font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600; color:#FFF; text-transform:uppercase; animation:{{ cbOpenAnim }};">Open</div>
+            </div>
+          </div>
+          <div style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7A705F; text-align:right;">
+            state: <b style="color:#221C15;">{{ cbStatusLabel }}</b><br/>
+            fails in a row: {{ cbFails }}
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap;">
+          <button onClick="{{ cbSend }}" disabled="{{ cbCalling }}" style="background:#221C15; color:#FBF6EE; border:none; padding:11px 18px; border-radius:9px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px; cursor:pointer; opacity:{{ cbBtnOpacity }};">{{ cbSendLabel }}</button>
+          <button onClick="{{ cbToggleOutage }}" style="background:{{ cbOutageBtnBg }}; color:{{ cbOutageBtnColor }}; border:1px solid #E4DAC5; padding:11px 18px; border-radius:9px; font-family:'IBM Plex Mono',monospace; font-size:13px; cursor:pointer;">{{ cbOutageLabel }}</button>
+          <button onClick="{{ cbReset }}" style="background:transparent; color:#7A705F; border:1px solid #E4DAC5; padding:11px 14px; border-radius:9px; font-family:'IBM Plex Mono',monospace; font-size:13px; cursor:pointer;">Reset</button>
+        </div>
+
+        <div style="display:flex; gap:5px; align-items:center; flex-wrap:wrap; min-height:22px;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7A705F; margin-right:6px;">log:</span>
+          <sc-for list="{{ cbLog }}" as="entry" hint-placeholder-count="0">
+            <div style="width:16px; height:16px; border-radius:5px; background:{{ entry.color }};" title="{{ entry.title }}"></div>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <div>
+        <div style="background:#F1EBDD; border-radius:14px; padding:18px 20px; margin-bottom:14px;">
+          <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:#8F3A16; margin-bottom:8px;">Where this comes from</div>
+          <p style="font-size:14.5px; line-height:1.6; color:#4A4237; margin:0;">Large streaming platforms popularized breaking circuits between hundreds of interdependent microservices, so one slow dependency couldn't cascade into a site-wide outage.</p>
+        </div>
+        <div style="background:#221C15; border-radius:14px; padding:18px 20px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; line-height:1.6; overflow-x:auto;">
+          <sc-for list="{{ cbCode }}" as="ln" hint-placeholder-count="8">
+            <div style="white-space:pre; padding:2px 6px; margin:0 -6px; border-radius:5px; color:{{ ln.color }}; background:{{ ln.bg }}; transition:background 0.2s ease, color 0.2s ease;">{{ ln.text }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RETRY WITH BACKOFF ============ -->
+  <div id="retry" style="max-width:1080px; margin:0 auto; padding:56px 24px; border-top:1px solid #E4DAC5;">
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#7A705F; margin-bottom:8px;">02 / RECOVER FROM BLIPS</div>
+    <h2 style="font-size:34px; margin:0 0 14px; letter-spacing:-0.01em;">Retry with Backoff</h2>
+    <p style="font-size:16px; line-height:1.65; color:#4A4237; max-width:680px; margin:0 0 32px;">
+      Transient failures — a dropped packet, a momentary GC pause — often resolve themselves. Retrying immediately just adds to the pile-up, so each attempt waits longer than the last, giving the dependency room to recover.
+    </p>
+
+    <div style="display:grid; grid-template-columns:1.1fr 0.9fr; gap:24px; align-items:start;">
+      <div style="background:#FFFFFF; border:1px solid #E4DAC5; border-radius:16px; padding:28px;">
+        <button onClick="{{ retryRun }}" disabled="{{ retryRunning }}" style="background:#221C15; color:#FBF6EE; border:none; padding:11px 18px; border-radius:9px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px; cursor:pointer; opacity:{{ retryBtnOpacity }}; margin-bottom:24px;">{{ retryBtnLabel }}</button>
+
+        <div style="display:flex; flex-direction:column; gap:10px; min-height:160px;">
+          <sc-for list="{{ retryAttempts }}" as="att" hint-placeholder-count="0">
+            <div style="display:flex; align-items:center; gap:12px; animation:riseIn 0.25s ease;">
+              <div style="width:74px; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7A705F;">attempt {{ att.n }}</div>
+              <div style="flex:1; height:10px; background:#F1EBDD; border-radius:6px; overflow:hidden;">
+                <div style="height:100%; width:{{ att.barWidth }}; background:{{ att.color }}; border-radius:6px;"></div>
+              </div>
+              <div style="width:64px; font-family:'IBM Plex Mono',monospace; font-size:12px; color:{{ att.color }}; text-align:right;">{{ att.label }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <sc-if value="{{ retryResult }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top:18px; font-family:'IBM Plex Mono',monospace; font-size:14px; font-weight:600; color:{{ retryResultColor }};">→ {{ retryResult }}</div>
+        </sc-if>
+      </div>
+
+      <div>
+        <div style="background:#F1EBDD; border-radius:14px; padding:18px 20px; margin-bottom:14px;">
+          <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:#8F3A16; margin-bottom:8px;">Where this comes from</div>
+          <p style="font-size:14.5px; line-height:1.6; color:#4A4237; margin:0;">Exponential backoff with jitter kept thundering herds of retries from synchronizing and re-overloading a service that was just starting to recover.</p>
+        </div>
+        <div style="background:#221C15; border-radius:14px; padding:18px 20px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; line-height:1.6; overflow-x:auto;">
+          <sc-for list="{{ retryCode }}" as="ln" hint-placeholder-count="5">
+            <div style="white-space:pre; padding:2px 6px; margin:0 -6px; border-radius:5px; color:{{ ln.color }}; background:{{ ln.bg }}; transition:background 0.2s ease, color 0.2s ease;">{{ ln.text }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ TIMEOUT ============ -->
+  <div id="timeout" style="max-width:1080px; margin:0 auto; padding:56px 24px; border-top:1px solid #E4DAC5;">
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#7A705F; margin-bottom:8px;">03 / DON'T WAIT FOREVER</div>
+    <h2 style="font-size:34px; margin:0 0 14px; letter-spacing:-0.01em;">Timeout</h2>
+    <p style="font-size:16px; line-height:1.65; color:#4A4237; max-width:680px; margin:0 0 32px;">
+      A slow dependency without a timeout is worse than a dead one — it ties up threads and memory while everyone waits. A firm deadline turns "hung" into a fast, well-understood failure.
+    </p>
+
+    <div style="display:grid; grid-template-columns:1.1fr 0.9fr; gap:24px; align-items:start;">
+      <div style="background:#FFFFFF; border:1px solid #E4DAC5; border-radius:16px; padding:28px;">
+        <div style="margin-bottom:20px;">
+          <div style="display:flex; justify-content:space-between; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7A705F; margin-bottom:8px;">
+            <span>simulated service latency</span>
+            <span>{{ timeoutLatencyLabel }}</span>
+          </div>
+          <input type="range" min="100" max="2400" step="100" value="{{ timeoutLatency }}" onChange="{{ timeoutSetLatency }}" style="width:100%;" />
+        </div>
+
+        <div style="position:relative; margin:20px 0 8px;">
+          <div style="position:absolute; bottom:100%; left:{{ timeoutThresholdPos }}; transform:translateX(-50%); margin-bottom:4px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#221C15; white-space:nowrap;">1200ms cap</div>
+          <div style="position:relative; height:38px; background:#F1EBDD; border-radius:10px; overflow:hidden;">
+            <div style="position:absolute; top:0; left:0; bottom:0; width:{{ timeoutBarWidth }}; background:{{ timeoutBarColor }}; transition:width 0.05s linear; border-radius:10px;"></div>
+            <div style="position:absolute; top:0; bottom:0; left:{{ timeoutThresholdPos }}; width:2px; background:#221C15;"></div>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:14px; margin-top:22px;">
+          <button onClick="{{ timeoutRun }}" disabled="{{ timeoutRunning }}" style="background:#221C15; color:#FBF6EE; border:none; padding:11px 18px; border-radius:9px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px; cursor:pointer; opacity:{{ timeoutBtnOpacity }};">Send request</button>
+          <sc-if value="{{ timeoutResult }}" hint-placeholder-val="{{ false }}">
+            <div style="font-family:'IBM Plex Mono',monospace; font-size:14px; font-weight:600; color:{{ timeoutResultColor }};">{{ timeoutResult }}</div>
+          </sc-if>
+        </div>
+      </div>
+
+      <div>
+        <div style="background:#F1EBDD; border-radius:14px; padding:18px 20px; margin-bottom:14px;">
+          <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:#8F3A16; margin-bottom:8px;">Where this comes from</div>
+          <p style="font-size:14.5px; line-height:1.6; color:#4A4237; margin:0;">Aggressive, tuned-per-dependency timeouts freed up request threads fast, which is what made fallback logic and circuit breakers effective in the first place.</p>
+        </div>
+        <div style="background:#221C15; border-radius:14px; padding:18px 20px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; line-height:1.6; overflow-x:auto;">
+          <sc-for list="{{ timeoutCode }}" as="ln" hint-placeholder-count="3">
+            <div style="white-space:pre; padding:2px 6px; margin:0 -6px; border-radius:5px; color:{{ ln.color }}; background:{{ ln.bg }}; transition:background 0.2s ease, color 0.2s ease;">{{ ln.text }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ BULKHEAD ============ -->
+  <div id="bulkhead" style="max-width:1080px; margin:0 auto; padding:56px 24px; border-top:1px solid #E4DAC5;">
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#7A705F; margin-bottom:8px;">04 / CONTAIN THE BLAST RADIUS</div>
+    <h2 style="font-size:34px; margin:0 0 14px; letter-spacing:-0.01em;">Bulkhead Isolation</h2>
+    <p style="font-size:16px; line-height:1.65; color:#4A4237; max-width:680px; margin:0 0 32px;">
+      Named after a ship's watertight compartments: give each dependency its own resource pool (threads, connections) so one overwhelmed call path can't starve every other feature of the resources it needs.
+    </p>
+
+    <div style="display:grid; grid-template-columns:1.1fr 0.9fr; gap:24px; align-items:start;">
+      <div style="background:#FFFFFF; border:1px solid #E4DAC5; border-radius:16px; padding:28px;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+          <div>
+            <div style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7A705F; margin-bottom:10px;">Pool A — recommendations</div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">
+              <sc-for list="{{ poolASlots }}" as="slot" hint-placeholder-count="4">
+                <div style="width:28px; height:28px; border-radius:7px; background:{{ slot.color }};"></div>
+              </sc-for>
+            </div>
+            <div style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#D1503A;">{{ poolARejected }} requests shed</div>
+          </div>
+          <div>
+            <div style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7A705F; margin-bottom:10px;">Pool B — checkout</div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">
+              <sc-for list="{{ poolBSlots }}" as="slot" hint-placeholder-count="4">
+                <div style="width:28px; height:28px; border-radius:7px; background:{{ slot.color }};"></div>
+              </sc-for>
+            </div>
+            <div style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#2F8F6B;">{{ poolBAccepted }} accepted, unaffected</div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px; margin-top:24px; flex-wrap:wrap;">
+          <button onClick="{{ floodPoolA }}" style="background:#221C15; color:#FBF6EE; border:none; padding:11px 18px; border-radius:9px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px; cursor:pointer;">Flood Pool A</button>
+          <button onClick="{{ pingPoolB }}" style="background:transparent; color:#221C15; border:1px solid #E4DAC5; padding:11px 18px; border-radius:9px; font-family:'IBM Plex Mono',monospace; font-size:13px; cursor:pointer;">Try a Pool B request</button>
+          <button onClick="{{ bulkheadReset }}" style="background:transparent; color:#7A705F; border:1px solid #E4DAC5; padding:11px 14px; border-radius:9px; font-family:'IBM Plex Mono',monospace; font-size:13px; cursor:pointer;">Reset</button>
+        </div>
+      </div>
+
+      <div>
+        <div style="background:#F1EBDD; border-radius:14px; padding:18px 20px; margin-bottom:14px;">
+          <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:#8F3A16; margin-bottom:8px;">Where this comes from</div>
+          <p style="font-size:14.5px; line-height:1.6; color:#4A4237; margin:0;">Separate thread pools per dependency meant a stalled "recommendations" call couldn't exhaust the threads checkout needed to keep charging cards.</p>
+        </div>
+        <div style="background:#221C15; border-radius:14px; padding:18px 20px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; line-height:1.6; overflow-x:auto;">
+          <sc-for list="{{ bulkheadCode }}" as="ln" hint-placeholder-count="4">
+            <div style="white-space:pre; padding:2px 6px; margin:0 -6px; border-radius:5px; color:{{ ln.color }}; background:{{ ln.bg }}; transition:background 0.2s ease, color 0.2s ease;">{{ ln.text }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RATE LIMITING ============ -->
+  <div id="rate-limit" style="max-width:1080px; margin:0 auto; padding:56px 24px 80px; border-top:1px solid #E4DAC5;">
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#7A705F; margin-bottom:8px;">05 / SHED LOAD ON PURPOSE</div>
+    <h2 style="font-size:34px; margin:0 0 14px; letter-spacing:-0.01em;">Rate Limiting &amp; Load Shedding</h2>
+    <p style="font-size:16px; line-height:1.65; color:#4A4237; max-width:680px; margin:0 0 32px;">
+      A token bucket refills at a steady rate; every request spends one token. When the bucket's empty, new requests are rejected outright — a controlled, cheap failure that keeps the service alive for everyone else instead of collapsing under load.
+    </p>
+
+    <div style="display:grid; grid-template-columns:1.1fr 0.9fr; gap:24px; align-items:start;">
+      <div style="background:#FFFFFF; border:1px solid #E4DAC5; border-radius:16px; padding:28px;">
+        <div style="display:flex; align-items:center; gap:6px; margin-bottom:20px;">
+          <sc-for list="{{ tokenSlots }}" as="tok" hint-placeholder-count="5">
+            <div style="width:30px; height:30px; border-radius:50%; background:{{ tok.color }}; transition:background 0.2s ease;"></div>
+          </sc-for>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:#7A705F; margin-left:10px;">{{ rlTokens }} / {{ rlCapacity }} tokens · refills 1/sec</span>
+        </div>
+
+        <button onClick="{{ rlFire }}" style="background:#221C15; color:#FBF6EE; border:none; padding:11px 18px; border-radius:9px; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px; cursor:pointer; margin-bottom:20px;">Fire request</button>
+
+        <div style="display:flex; gap:5px; align-items:center; flex-wrap:wrap; min-height:22px;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7A705F; margin-right:6px;">log:</span>
+          <sc-for list="{{ rlLog }}" as="entry" hint-placeholder-count="0">
+            <div style="width:16px; height:16px; border-radius:5px; background:{{ entry.color }};" title="{{ entry.title }}"></div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div>
+        <div style="background:#F1EBDD; border-radius:14px; padding:18px 20px; margin-bottom:14px;">
+          <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:#8F3A16; margin-bottom:8px;">Where this comes from</div>
+          <p style="font-size:14.5px; line-height:1.6; color:#4A4237; margin:0;">During traffic spikes, deliberately shedding a slice of low-priority requests kept core playback flowing for the majority of members instead of degrading everything at once.</p>
+        </div>
+        <div style="background:#221C15; border-radius:14px; padding:18px 20px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; line-height:1.6; overflow-x:auto;">
+          <sc-for list="{{ rlCode }}" as="ln" hint-placeholder-count="5">
+            <div style="white-space:pre; padding:2px 6px; margin:0 -6px; border-radius:5px; color:{{ ln.color }}; background:{{ ln.bg }}; transition:background 0.2s ease, color 0.2s ease;">{{ ln.text }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="border-top:1px solid #E4DAC5; padding:40px 24px 60px;">
+    <div style="max-width:1080px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#7A705F;">Built for learning. Fork it, break it, send a PR.</div>
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#7A705F;">MIT License · an independent, community project</div>
+    </div>
+  </div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 1200, &quot;height&quot;: 900}, &quot;accentColor&quot;: {&quot;editor&quot;: &quot;color&quot;, &quot;default&quot;: &quot;#E0692E&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;options&quot;: [&quot;#E0692E&quot;, &quot;#2E6F9E&quot;, &quot;#7A5FC0&quot;, &quot;#2F8F6B&quot;]}}">
+class Component extends DCLogic {
+  state = {
+    cb: { status: 'closed', fails: 0, outage: false, log: [], calling: false, activeLines: [] },
+    retry: { running: false, attempts: [], result: null, activeLines: [] },
+    timeout: { latency: 800, running: false, progress: 0, result: null, activeLines: [0] },
+    bulkhead: { poolA: 0, poolB: 0, poolARejected: 0, poolBAccepted: 0, activeLines: [], busy: false },
+    rl: { tokens: 5, capacity: 5, log: [], activeLines: [] }
+  };
+
+  CB_LINES = ['if breaker.isOpen():', '    return fallback()', 'try:', '    result = call(dependency)', '    breaker.recordSuccess()', 'except:', '    breaker.recordFailure()', '    return fallback()'];
+  RETRY_LINES = ['delay = base', 'for attempt in 1..max:', '    if call(): return success', '    sleep(delay + jitter())', '    delay *= 2'];
+  TIMEOUT_LINES = ['result = call(dependency, timeout=1200ms)', 'if result.timedOut:', '    return fallback()'];
+  BULKHEAD_LINES = ['pool = pools[dependency]', 'if pool.isFull():', '    return reject()', 'pool.run(call)'];
+  RL_LINES = ['if bucket.tokens > 0:', '    bucket.tokens -= 1', '    return handle(request)', 'else:', '    return shed(request)'];
+
+  _codeLines(lines, active) {
+    return lines.map((text, i) => ({
+      text,
+      color: active.includes(i) ? '#FFF7EF' : '#8A9184',
+      bg: active.includes(i) ? 'rgba(224,105,46,0.35)' : 'transparent'
+    }));
+  }
+
+  componentDidMount() {
+    this._timers = [];
+    this._rlInterval = setInterval(() => {
+      this.setState(s => ({ rl: { ...s.rl, tokens: Math.min(s.rl.capacity, s.rl.tokens + 1) } }));
+    }, 1000);
+  }
+
+  componentWillUnmount() {
+    clearInterval(this._rlInterval);
+    (this._timers || []).forEach(clearTimeout);
+  }
+
+  track = (id) => { this._timers = (this._timers || []).concat(id); };
+
+  // ---------- Circuit breaker ----------
+  cbSend = () => {
+    if (this.state.cb.calling) return;
+    const cb0 = this.state.cb;
+    if (cb0.status === 'open') {
+      this.setState(s => ({ cb: { ...s.cb, activeLines: [0, 1], log: this._pushLog(s.cb.log, { ok: false, color: '#B3A98F', title: 'rejected — circuit open' }) } }));
+      const clearId = setTimeout(() => this.setState(s => ({ cb: { ...s.cb, activeLines: [] } })), 900);
+      this.track(clearId);
+      return;
+    }
+    this.setState(s => ({ cb: { ...s.cb, calling: true, activeLines: [2, 3] } }));
+    const id = setTimeout(() => {
+      this.setState(s => {
+        const cb = s.cb;
+        const successChance = cb.outage ? 0.15 : 0.8;
+        const ok = Math.random() < successChance;
+        let status = cb.status;
+        let fails = cb.fails;
+        let activeLines;
+        if (ok) {
+          fails = 0;
+          if (status === 'half-open') status = 'closed';
+          activeLines = [3, 4];
+        } else {
+          fails += 1;
+          activeLines = [5, 6, 7];
+          if (status === 'half-open' || fails >= 3) {
+            status = 'open';
+            const tid = setTimeout(() => {
+              this.setState(s2 => ({ cb: { ...s2.cb, status: s2.cb.status === 'open' ? 'half-open' : s2.cb.status } }));
+            }, 3000);
+            this.track(tid);
+          }
+        }
+        const log = this._pushLog(cb.log, { ok, color: ok ? '#2F8F6B' : '#D1503A', title: ok ? 'success' : 'failure' });
+        return { cb: { ...cb, status, fails, log, calling: false, activeLines } };
+      });
+      const clearId = setTimeout(() => this.setState(s => ({ cb: { ...s.cb, activeLines: [] } })), 900);
+      this.track(clearId);
+    }, 450);
+    this.track(id);
+  };
+
+  cbToggleOutage = () => this.setState(s => ({ cb: { ...s.cb, outage: !s.cb.outage } }));
+  cbReset = () => this.setState({ cb: { status: 'closed', fails: 0, outage: false, log: [], calling: false, activeLines: [] } });
+
+  _pushLog(log, entry) {
+    const next = log.concat(entry);
+    return next.slice(Math.max(0, next.length - 10));
+  }
+
+  // ---------- Retry with backoff ----------
+  retryRun = () => {
+    if (this.state.retry.running) return;
+    this.setState({ retry: { running: true, attempts: [], result: null, activeLines: [1, 2] } });
+    const step = (n, delay) => {
+      this.setState(s => ({ retry: { ...s.retry, activeLines: [1, 2] } }));
+      const id = setTimeout(() => {
+        const ok = Math.random() < (0.2 + n * 0.22);
+        const barWidth = Math.min(100, 20 + n * 22) + '%';
+        const entry = { n, ok, barWidth, label: ok ? 'success' : 'failed', color: ok ? '#2F8F6B' : '#D1503A' };
+        this.setState(s => ({ retry: { ...s.retry, attempts: s.retry.attempts.concat(entry) } }));
+        if (ok) {
+          this.setState(s => ({ retry: { ...s.retry, running: false, result: 'Recovered', resultOk: true, activeLines: [2] } }));
+          const cid = setTimeout(() => this.setState(s => ({ retry: { ...s.retry, activeLines: [] } })), 900);
+          this.track(cid);
+        } else if (n >= 4) {
+          this.setState(s => ({ retry: { ...s.retry, running: false, result: 'Gave up after 4 attempts', resultOk: false, activeLines: [1] } }));
+          const cid = setTimeout(() => this.setState(s => ({ retry: { ...s.retry, activeLines: [] } })), 900);
+          this.track(cid);
+        } else {
+          this.setState(s => ({ retry: { ...s.retry, activeLines: [3, 4] } }));
+          const wid = setTimeout(() => step(n + 1, delay * 2), 350);
+          this.track(wid);
+        }
+      }, delay);
+      this.track(id);
+    };
+    step(1, 350);
+  };
+
+  // ---------- Timeout ----------
+  timeoutSetLatency = (e) => {
+    const v = Number(e.target.value);
+    this.setState(s => ({ timeout: { ...s.timeout, latency: v } }));
+  };
+
+  timeoutRun = () => {
+    if (this.state.timeout.running) return;
+    const threshold = 1200;
+    const latency = this.state.timeout.latency;
+    this.setState(s => ({ timeout: { ...s.timeout, running: true, progress: 0, result: null, activeLines: [0] } }));
+    const start = Date.now();
+    const cap = Math.min(latency, threshold + 150);
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      const progress = Math.min(elapsed, cap);
+      this.setState(s => ({ timeout: { ...s.timeout, progress } }));
+      if (elapsed < cap) {
+        const id = setTimeout(tick, 20);
+        this.track(id);
+      } else {
+        const timedOut = latency > threshold;
+        this.setState(s => ({ timeout: { ...s.timeout, running: false, result: timedOut ? 'Timed out' : 'Success', timedOut, activeLines: timedOut ? [1, 2] : [0] } }));
+      }
+    };
+    tick();
+  };
+
+  // ---------- Bulkhead ----------
+  floodPoolA = () => {
+    if (this.state.bulkhead.busy) return;
+    this.setState(s => ({ bulkhead: { ...s.bulkhead, busy: true } }));
+    const sendOne = (i) => {
+      const id = setTimeout(() => {
+        this.setState(s => {
+          const full = s.bulkhead.poolA >= 4;
+          const activeLines = full ? [0, 1, 2] : [0, 3];
+          return {
+            bulkhead: {
+              ...s.bulkhead,
+              activeLines,
+              poolA: full ? s.bulkhead.poolA : s.bulkhead.poolA + 1,
+              poolARejected: full ? s.bulkhead.poolARejected + 1 : s.bulkhead.poolARejected
+            }
+          };
+        });
+        if (i < 5) {
+          sendOne(i + 1);
+        } else {
+          const cid = setTimeout(() => this.setState(s => ({ bulkhead: { ...s.bulkhead, activeLines: [], busy: false } })), 700);
+          this.track(cid);
+        }
+      }, 220);
+      this.track(id);
+    };
+    sendOne(0);
+  };
+  pingPoolB = () => {
+    this.setState(s => {
+      const accepted = s.bulkhead.poolB < 4;
+      return {
+        bulkhead: {
+          ...s.bulkhead,
+          activeLines: accepted ? [0, 3] : [0, 1, 2],
+          poolB: accepted ? s.bulkhead.poolB + 1 : s.bulkhead.poolB,
+          poolBAccepted: accepted ? s.bulkhead.poolBAccepted + 1 : s.bulkhead.poolBAccepted
+        }
+      };
+    });
+    const cid = setTimeout(() => this.setState(s => ({ bulkhead: { ...s.bulkhead, activeLines: [] } })), 700);
+    this.track(cid);
+  };
+  bulkheadReset = () => this.setState({ bulkhead: { poolA: 0, poolB: 0, poolARejected: 0, poolBAccepted: 0, activeLines: [], busy: false } });
+
+  // ---------- Rate limiting ----------
+  rlFire = () => {
+    this.setState(s => {
+      const rl = s.rl;
+      if (rl.tokens > 0) {
+        return { rl: { ...rl, tokens: rl.tokens - 1, activeLines: [0, 1, 2], log: this._pushLog(rl.log, { ok: true, color: '#2F8F6B', title: 'accepted' }) } };
+      }
+      return { rl: { ...rl, activeLines: [0, 3, 4], log: this._pushLog(rl.log, { ok: false, color: '#D1503A', title: 'shed — no tokens' }) } };
+    });
+    const cid = setTimeout(() => this.setState(s => ({ rl: { ...s.rl, activeLines: [] } })), 700);
+    this.track(cid);
+  };
+
+  renderVals() {
+    const accentColor = this.props.accentColor || '#E0692E';
+    const cb = this.state.cb;
+    const statusColors = { closed: '#2F8F6B', 'half-open': '#D69A2D', open: '#D1503A' };
+    const dim = '#D8CEB9';
+
+    const retry = this.state.retry;
+    const timeout = this.state.timeout;
+    const threshold = 1200;
+    const barPct = Math.min(100, (timeout.progress / (threshold + 200)) * 100);
+    const bulkhead = this.state.bulkhead;
+    const rl = this.state.rl;
+
+    const poolASlots = Array.from({ length: 4 }, (_, i) => ({ color: i < bulkhead.poolA ? '#D1503A' : '#F1EBDD' }));
+    const poolBSlots = Array.from({ length: 4 }, (_, i) => ({ color: i < bulkhead.poolB ? '#2F8F6B' : '#F1EBDD' }));
+    const tokenSlots = Array.from({ length: rl.capacity }, (_, i) => ({ color: i < rl.tokens ? accentColor : '#F1EBDD' }));
+
+    return {
+      accentColor,
+      statChips: [
+        { value: '5', label: 'patterns covered' },
+        { value: 'MIT', label: 'license' },
+        { value: 'live', label: 'interactive demos' }
+      ],
+
+      cbStatusLabel: cb.status,
+      cbFails: cb.fails,
+      cbClosedBg: cb.status === 'closed' ? statusColors.closed : dim,
+      cbHalfOpenBg: cb.status === 'half-open' ? statusColors['half-open'] : dim,
+      cbOpenBg: cb.status === 'open' ? statusColors.open : dim,
+      cbOpenAnim: cb.status === 'open' ? 'blinkRed 1.1s ease-in-out infinite' : 'none',
+      cbSend: this.cbSend,
+      cbCalling: cb.calling,
+      cbBtnOpacity: cb.calling ? 0.6 : 1,
+      cbSendLabel: cb.calling ? 'Calling…' : 'Send request',
+      cbToggleOutage: this.cbToggleOutage,
+      cbReset: this.cbReset,
+      cbOutageLabel: cb.outage ? 'Outage mode: ON' : 'Simulate outage',
+      cbOutageBtnBg: cb.outage ? '#D1503A' : 'transparent',
+      cbOutageBtnColor: cb.outage ? '#FFF7EF' : '#221C15',
+      cbLog: cb.log,
+      cbCode: this._codeLines(this.CB_LINES, cb.activeLines),
+
+      retryRun: this.retryRun,
+      retryRunning: retry.running,
+      retryBtnLabel: retry.running ? 'Calling…' : 'Call flaky service',
+      retryBtnOpacity: retry.running ? 0.6 : 1,
+      retryAttempts: retry.attempts,
+      retryResult: retry.result,
+      retryResultColor: retry.resultOk ? '#2F8F6B' : '#D1503A',
+      retryCode: this._codeLines(this.RETRY_LINES, retry.activeLines || []),
+
+      timeoutLatency: timeout.latency,
+      timeoutLatencyLabel: timeout.latency + 'ms',
+      timeoutSetLatency: this.timeoutSetLatency,
+      timeoutRun: this.timeoutRun,
+      timeoutRunning: timeout.running,
+      timeoutBtnOpacity: timeout.running ? 0.6 : 1,
+      timeoutBarWidth: barPct + '%',
+      timeoutBarColor: timeout.timedOut ? '#D1503A' : (timeout.result ? '#2F8F6B' : accentColor),
+      timeoutThresholdPos: (threshold / (threshold + 200)) * 100 + '%',
+      timeoutResult: timeout.result,
+      timeoutResultColor: timeout.timedOut ? '#D1503A' : '#2F8F6B',
+      timeoutCode: this._codeLines(this.TIMEOUT_LINES, timeout.activeLines || []),
+
+      poolASlots,
+      poolBSlots,
+      poolARejected: bulkhead.poolARejected,
+      poolBAccepted: bulkhead.poolBAccepted,
+      floodPoolA: this.floodPoolA,
+      pingPoolB: this.pingPoolB,
+      bulkheadReset: this.bulkheadReset,
+      bulkheadCode: this._codeLines(this.BULKHEAD_LINES, bulkhead.activeLines || []),
+
+      tokenSlots,
+      rlTokens: rl.tokens,
+      rlCapacity: rl.capacity,
+      rlFire: this.rlFire,
+      rlLog: rl.log,
+      rlCode: this._codeLines(this.RL_LINES, rl.activeLines || [])
+    };
+  }
+}
+</script>
+</body>
+</html>
